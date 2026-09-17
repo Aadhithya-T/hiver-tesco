@@ -42,9 +42,10 @@ def detect_sentiment_conflict(
     draft_reply: str,
     predicted_intent: Optional[str] = None,
 ) -> Tuple[bool, Optional[str]]:
-    """Detect tone and sentiment conflicts between customer query and drafted reply.
+    """Heuristic safety guard for tone and sentiment conflicts between customer query and drafted reply.
 
-    Catches cases where:
+    Note: This is a heuristic pattern-matching safety guard rather than a guaranteed semantic classifier.
+    It catches high-discrepancy failure modes where:
     1. Customer praised Tesco or engaged in banter/chitchat, but draft contains an apology
        for a defect, poor experience, or offers an unprompted refund.
     2. Customer reported a complaint/defect, but draft responds with cheerful emojis or celebration.

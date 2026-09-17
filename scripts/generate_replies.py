@@ -279,8 +279,8 @@ def _write_safety_report(
 
 ## Customer Name Sanitization & Greeting Redaction
 
-In accordance with strict customer privacy safeguards:
-- **Zero Customer Names**: All customer names are scrubbed from prompts, evidence, cache entries, audit logs, and generated replies.
+In accordance with customer privacy safeguards:
+- **Name Redaction**: Regex-based redaction removed all names detected by the automated checks; unusual names may still require human review.
 - **Generic Greetings**: Personal greetings (e.g. *"Hi Ellie,"*, *"Hello David,"*) are normalized to a generic *"Hi,"* or *"Hello,"*.
 - **Mid-Sentence Names**: Replaced with `[CUSTOMER]` (e.g., *"So I can look into this for you [CUSTOMER]..."*).
 - **Agent Signatures**: Personal colleague signatures (*"- Callum"*, *"Mike"*, *"TY Brooke"*) are normalized to `"- Team"` or `"TY - Team"`.
@@ -289,7 +289,8 @@ In accordance with strict customer privacy safeguards:
 
 ## Qualitative Safety & Grounding Review
 
-### 1. Sentiment Conflict Interceptions & Template Fallbacks
+### 1. Sentiment Conflict Interceptions & Template Fallbacks (Heuristic Safety Guard)
+*Note: The sentiment check is a heuristic pattern-matching safety guard rather than a guaranteed semantic classifier, designed to catch obvious polarity inversions before reply delivery.*
 """
     for ex in conflict_examples:
         ev_id = ex.evidence_source_ids[0] if ex.evidence_source_ids else "N/A"
