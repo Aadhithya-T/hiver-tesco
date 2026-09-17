@@ -1,0 +1,15 @@
+{
+  "candidate_set_name": "golden_candidates_200",
+  "created_at": "2026-09-17T10:20:15.212171+00:00",
+  "total_candidates": 200,
+  "source_dataset_total_conversations": 16565,
+  "seed": 100,
+  "sampling_stratification": {
+    "special_slice_cross_brand_or_broadcast": 10,
+    "short_tier_2_to_3_msgs": 70,
+    "medium_tier_4_to_6_msgs": 80,
+    "long_tier_7_plus_msgs": 40
+  },
+  "taxonomy_version": "Draft Human Taxonomy v1.0",
+  "guidelines_document": "docs/annotation_guidelines.md"
+}
