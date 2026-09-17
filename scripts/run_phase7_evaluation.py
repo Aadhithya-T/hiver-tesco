@@ -40,6 +40,7 @@ from hiver_tesco.evaluation.human_comparison import (
 )
 from hiver_tesco.evaluation.pairwise_judge import (
     BlindedPairwiseJudge,
+    GeminiPairwiseJudge,
     MockPairwiseJudge,
     OpenAIPairwiseJudge,
     compute_position_bias_metrics,
@@ -82,15 +83,18 @@ def run_generation_for_conversations(
     golden_df = golden_df.copy()
     golden_df["conversation_id"] = golden_df["conversation_id"].astype(str)
 
+    model_default = "mock-pipeline-v1" if provider_name == "mock" else ("gemini-3.5-flash" if provider_name == "gemini" else "gpt-4o-mini")
     config = GenerationConfig(
         provider=provider_name,
-        model=model_name or ("mock-pipeline-v1" if provider_name == "mock" else "gpt-4o-mini"),
+        model=model_name or model_default,
         temperature=0.0,
         max_tokens=150,
     )
     if provider_name == "ollama":
         config.base_url = "http://localhost:11434/v1/chat/completions"
         config.api_key_env_var = "OLLAMA_API_KEY"
+    elif provider_name == "gemini":
+        config.api_key_env_var = "GEMINI_API_KEY"
 
     cache_dir = output_dir / "cache"
     audit_path = output_dir / "generation_audit.jsonl"
@@ -162,6 +166,8 @@ def run_generation_for_conversations(
         print(f"  [{idx:02d}/{len(conv_ids):02d}] Conv {conv_id_str:<10} | Policy: {policy_label:<8} | Status: [{status}]")
 
         audit_records.append(audit.to_dict())
+        if policy_decision.action == PolicyAction.RESPOND and provider_name != "mock":
+            time.sleep(1.0)
 
     return audit_records
 
@@ -192,6 +198,7 @@ def run_pairwise_judging(audit_records, judge, split_label):
         print(f"  [{idx:02d}/{len(respond_records):02d}] Judging Conv {conv_id}...")
         result = blinded.evaluate_pair(conv_id, query, generated, template)
         results.append(result)
+        time.sleep(1.0)
 
     bias_metrics = compute_position_bias_metrics(results)
     pref_summary = summarize_judge_preferences(results)
@@ -210,10 +217,11 @@ def run_pairwise_judging(audit_records, judge, split_label):
 
 def stage_dev(args, repo_root):
     """Stage 1: Dev validation — finalize live prompt/model setup."""
+    model_name = args.model or ("mock-pipeline-v1" if args.provider == "mock" else ("gemini-3.5-flash" if args.provider == "gemini" else "gpt-4o-mini"))
     print("=" * 70)
     print("PHASE 7 — STAGE: DEV VALIDATION")
     print("=" * 70)
-    print(f"Provider: {args.provider}, Model: {args.model or 'gpt-4o-mini'}")
+    print(f"Provider: {args.provider}, Model: {model_name}")
     print()
 
     output_dir = repo_root / "outputs" / "evaluation" / "dev"
@@ -284,11 +292,20 @@ def stage_dev(args, repo_root):
 
     if args.provider == "mock":
         judge = MockPairwiseJudge()
+    elif args.provider == "gemini":
+        judge = GeminiPairwiseJudge(
+            model=args.model or "gemini-3.5-flash",
+            api_key_env_var="GEMINI_API_KEY",
+        )
+    elif args.provider == "ollama":
+        judge = OpenAIPairwiseJudge(
+            model=args.model or "llama3.1:8b",
+            base_url="http://localhost:11434/v1/chat/completions",
+        )
     else:
         judge = OpenAIPairwiseJudge(
             model=args.model or "gpt-4o-mini",
-            base_url=("http://localhost:11434/v1/chat/completions" if args.provider == "ollama"
-                       else "https://api.openai.com/v1/chat/completions"),
+            base_url="https://api.openai.com/v1/chat/completions",
         )
 
     results, judge_stats = run_pairwise_judging(audit_records, judge, "dev")
@@ -380,11 +397,20 @@ def stage_test(args, repo_root):
 
     if args.provider == "mock":
         judge = MockPairwiseJudge()
+    elif args.provider == "gemini":
+        judge = GeminiPairwiseJudge(
+            model=args.model or "gemini-3.5-flash",
+            api_key_env_var="GEMINI_API_KEY",
+        )
+    elif args.provider == "ollama":
+        judge = OpenAIPairwiseJudge(
+            model=args.model or "llama3.1:8b",
+            base_url="http://localhost:11434/v1/chat/completions",
+        )
     else:
         judge = OpenAIPairwiseJudge(
             model=args.model or "gpt-4o-mini",
-            base_url=("http://localhost:11434/v1/chat/completions" if args.provider == "ollama"
-                       else "https://api.openai.com/v1/chat/completions"),
+            base_url="https://api.openai.com/v1/chat/completions",
         )
 
     results, judge_stats = run_pairwise_judging(audit_records, judge, "test")
@@ -632,8 +658,8 @@ def main():
     parser = argparse.ArgumentParser(description="Phase 7 Reply Evaluation")
     parser.add_argument("--stage", required=True, choices=["dev", "test", "finalize"],
                         help="dev: validate on Dev subset; test: one-shot locked Test; finalize: offline report")
-    parser.add_argument("--provider", default="mock", choices=["mock", "openai", "ollama"],
-                        help="LLM provider (mock for offline tests, openai or ollama for live)")
+    parser.add_argument("--provider", default="gemini", choices=["mock", "openai", "ollama", "gemini"],
+                        help="LLM provider (mock for offline tests, gemini, openai, or ollama for live)")
     parser.add_argument("--model", default=None, help="Model identifier (e.g., gpt-4o-mini, llama3.1:8b)")
 
     args = parser.parse_args()

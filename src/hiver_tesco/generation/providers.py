@@ -8,7 +8,27 @@ from typing import Any, Dict, List, Optional
 import urllib.request
 import urllib.error
 
+from pathlib import Path
+
 from hiver_tesco.generation.models import GenerationConfig, LLMMessage, LLMResponse
+
+
+def load_dotenv():
+    """Load key-value pairs from .env file into os.environ if not already set."""
+    candidates = [
+        Path.cwd() / ".env",
+        Path(__file__).resolve().parent.parent.parent.parent / ".env",
+    ]
+    for p in candidates:
+        if p.exists():
+            with open(p, encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if line and not line.startswith("#") and "=" in line:
+                        k, v = line.split("=", 1)
+                        k, v = k.strip(), v.strip().strip('"').strip("'")
+                        if k not in os.environ:
+                            os.environ[k] = v
 
 
 class BaseLLMProvider(ABC):
@@ -108,6 +128,9 @@ class MockLLMProvider(BaseLLMProvider):
         )
 
 
+import time
+
+
 class OpenAICompatibleProvider(BaseLLMProvider):
     """Configurable HTTP provider connecting to OpenAI-compatible endpoints.
 
@@ -117,6 +140,7 @@ class OpenAICompatibleProvider(BaseLLMProvider):
 
     def __init__(self, config: GenerationConfig):
         super().__init__(config)
+        load_dotenv()
         self.api_key = os.environ.get(config.api_key_env_var)
         if not self.api_key and not (config.base_url and "localhost" in config.base_url):
             raise ValueError(
@@ -144,24 +168,115 @@ class OpenAICompatibleProvider(BaseLLMProvider):
         data_bytes = json.dumps(payload).encode("utf-8")
         req = urllib.request.Request(self.endpoint, data=data_bytes, headers=headers, method="POST")
 
-        try:
-            with urllib.request.urlopen(req, timeout=30) as resp:
-                result = json.loads(resp.read().decode("utf-8"))
-            choice = result["choices"][0]
-            content = choice["message"]["content"]
-            usage = result.get("usage", {})
-            return LLMResponse(
-                content=content,
-                raw_response=result,
-                usage=usage,
-                model=self.config.model,
-                provider_name="openai_compatible",
+        max_retries = 5
+        backoff = 3.0
+        for attempt in range(max_retries):
+            try:
+                with urllib.request.urlopen(req, timeout=30) as resp:
+                    result = json.loads(resp.read().decode("utf-8"))
+                choice = result["choices"][0]
+                content = choice["message"]["content"]
+                usage = result.get("usage", {})
+                return LLMResponse(
+                    content=content,
+                    raw_response=result,
+                    usage=usage,
+                    model=self.config.model,
+                    provider_name="openai_compatible",
+                )
+            except urllib.error.HTTPError as e:
+                err_msg = e.read().decode("utf-8")
+                if e.code in (429, 500, 502, 503, 504) and attempt < max_retries - 1:
+                    time.sleep(backoff)
+                    backoff *= 2
+                    continue
+                raise RuntimeError(f"OpenAI API HTTP Error {e.code}: {err_msg}")
+            except Exception as e:
+                if attempt < max_retries - 1:
+                    time.sleep(backoff)
+                    backoff *= 2
+                    continue
+                raise RuntimeError(f"Failed to connect to LLM endpoint: {e}")
+
+
+class GeminiNativeProvider(BaseLLMProvider):
+    """Direct provider connecting to Google Gemini REST API.
+
+    Uses native JSON mode (responseMimeType='application/json') with automatic retry.
+    """
+
+    def __init__(self, config: GenerationConfig):
+        super().__init__(config)
+        load_dotenv()
+        self.api_key = os.environ.get(config.api_key_env_var or "GEMINI_API_KEY")
+        if not self.api_key:
+            raise ValueError(
+                f"Required environment variable '{config.api_key_env_var or 'GEMINI_API_KEY'}' is not set. "
+                "Cannot initialize Gemini provider without API credentials."
             )
-        except urllib.error.HTTPError as e:
-            err_msg = e.read().decode("utf-8")
-            raise RuntimeError(f"OpenAI API HTTP Error {e.code}: {err_msg}")
-        except Exception as e:
-            raise RuntimeError(f"Failed to connect to LLM endpoint: {e}")
+        self.model = config.model or "gemini-3.5-flash"
+        if self.model in ("mock-model", "gpt-4o-mini"):
+            self.model = "gemini-3.5-flash"
+
+    def generate(self, messages: List[LLMMessage], **kwargs) -> LLMResponse:
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{self.model}:generateContent?key={self.api_key}"
+
+        system_text = ""
+        user_text = ""
+        for m in messages:
+            if m.role == "system":
+                system_text += m.content + "\n\n"
+            else:
+                user_text += m.content + "\n\n"
+
+        payload = {
+            "contents": [{"role": "user", "parts": [{"text": user_text.strip()}]}],
+            "generationConfig": {
+                "temperature": self.config.temperature,
+                "maxOutputTokens": 400,
+                "responseMimeType": "application/json",
+                "thinkingConfig": {"thinkingBudget": 0},
+            }
+        }
+        if system_text.strip():
+            payload["system_instruction"] = {"parts": [{"text": system_text.strip()}]}
+
+        data_bytes = json.dumps(payload).encode("utf-8")
+        req = urllib.request.Request(url, data=data_bytes, headers={"Content-Type": "application/json"}, method="POST")
+
+        max_retries = 5
+        backoff = 2.0
+        for attempt in range(max_retries):
+            try:
+                with urllib.request.urlopen(req, timeout=30) as resp:
+                    result = json.loads(resp.read().decode("utf-8"))
+                content = result["candidates"][0]["content"]["parts"][0]["text"]
+                usage_meta = result.get("usageMetadata", {})
+                usage = {
+                    "prompt_tokens": usage_meta.get("promptTokenCount", 0),
+                    "completion_tokens": usage_meta.get("candidatesTokenCount", 0),
+                    "total_tokens": usage_meta.get("totalTokenCount", 0),
+                }
+                return LLMResponse(
+                    content=content,
+                    raw_response=result,
+                    usage=usage,
+                    model=self.model,
+                    provider_name="gemini_native",
+                )
+            except urllib.error.HTTPError as e:
+                err_msg = e.read().decode("utf-8")
+                if e.code in (429, 500, 502, 503, 504) and attempt < max_retries - 1:
+                    time.sleep(backoff)
+                    backoff *= 2
+                    continue
+                raise RuntimeError(f"Gemini API HTTP Error {e.code}: {err_msg}")
+            except Exception as e:
+                if attempt < max_retries - 1:
+                    time.sleep(backoff)
+                    backoff *= 2
+                    continue
+                raise RuntimeError(f"Failed to connect to Gemini API: {e}")
 
 
 def get_provider(config: GenerationConfig) -> BaseLLMProvider:
@@ -169,7 +284,9 @@ def get_provider(config: GenerationConfig) -> BaseLLMProvider:
     provider_type = config.provider.lower()
     if provider_type == "mock":
         return MockLLMProvider(config)
+    elif provider_type == "gemini":
+        return GeminiNativeProvider(config)
     elif provider_type in ("openai", "openai_compatible", "groq", "ollama", "openrouter"):
         return OpenAICompatibleProvider(config)
     else:
-        raise ValueError(f"Unsupported provider type '{config.provider}'. Choose 'mock' or 'openai'.")
+        raise ValueError(f"Unsupported provider type '{config.provider}'. Choose 'mock', 'openai', or 'gemini'.")

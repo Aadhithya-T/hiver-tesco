@@ -4,13 +4,17 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "hiver-tesco"
-version = "0.1.0"
-description = "Phase 1 Tesco conversation extraction, reconstruction, and taxonomy discovery sampling pipeline."
+version = "1.0.0"
+description = "Evidence-first customer support AI assistant for Tesco: deterministic policy, historical retrieval, grounded generation, and blinded evaluation."
 readme = "README.md"
 authors = [{ name = "Hiver SDE Candidate" }]
 requires-python = ">=3.9"
 dependencies = [
     "pandas>=2.0.0",
+    "numpy>=1.24.0",
+    "scikit-learn>=1.2.0",
+    "sentence-transformers>=2.2.0",
+    "torch>=2.0.0",
 ]
 
 [project.optional-dependencies]

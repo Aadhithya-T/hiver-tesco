@@ -1,6 +1,6 @@
 {
   "artifact_name": "golden_set_v1.0",
-  "frozen_at": "2026-09-17T11:20:28.312915+00:00",
+  "frozen_at": "2026-09-17T17:54:11.213443+00:00",
   "source_file": "data\\annotation\\golden_candidates_200.csv",
   "sha256": "1d6c44e24344c98a3446fa22faa534e33f91d71ad233013c3fc73c8a933f51a5",
   "total_records": 200,
@@ -11,14 +11,14 @@
     "adjudication_process": "Single reviewer manual annotation adhering to Phase 2 guidelines. Ambiguities and multi-intent borderline cases noted in ambiguity_notes."
   },
   "intent_distribution": {
-    "stock_and_availability": 13,
-    "store_experience_and_staff": 36,
-    "delivery_and_orders": 26,
     "website_and_app_technical": 11,
     "general_feedback_and_chitchat": 45,
     "product_quality_and_safety": 55,
-    "pricing_promotions_and_vouchers": 9,
-    "clubcard_and_loyalty": 5
+    "store_experience_and_staff": 36,
+    "stock_and_availability": 13,
+    "delivery_and_orders": 26,
+    "clubcard_and_loyalty": 5,
+    "pricing_promotions_and_vouchers": 9
   },
   "escalation_distribution": {
     "escalate": 114,
@@ -26,10 +26,10 @@
   },
   "rationale_distribution": {
     "refund_or_compensation": 28,
-    "none": 86,
+    "requires_pii_or_dm": 59,
     "product_safety_investigation": 11,
     "technical_support": 6,
-    "requires_pii_or_dm": 59,
+    "none": 86,
     "formal_complaint": 10
   },
   "splits": {

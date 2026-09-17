@@ -7,11 +7,14 @@ Applied ONLY to conversations where policy action was RESPOND
 import json
 import os
 import re
+import time
 import urllib.error
 import urllib.request
 from abc import ABC, abstractmethod
 from dataclasses import asdict, dataclass, field
 from typing import Any, Dict, List, Optional, Tuple
+
+from hiver_tesco.generation.providers import load_dotenv
 
 
 @dataclass
@@ -141,6 +144,7 @@ class OpenAIPairwiseJudge(BasePairwiseJudge):
 
     def __init__(self, model: str = "gpt-4o-mini", api_key_env_var: str = "OPENAI_API_KEY",
                  base_url: str = "https://api.openai.com/v1/chat/completions"):
+        load_dotenv()
         self.model = model
         self.api_key = os.environ.get(api_key_env_var, "")
         self.base_url = base_url
@@ -168,20 +172,100 @@ class OpenAIPairwiseJudge(BasePairwiseJudge):
         data_bytes = json.dumps(payload).encode("utf-8")
         req = urllib.request.Request(self.base_url, data=data_bytes, headers=headers, method="POST")
 
-        try:
-            with urllib.request.urlopen(req, timeout=30) as resp:
-                result = json.loads(resp.read().decode("utf-8"))
-            raw_content = result["choices"][0]["message"]["content"]
-            parsed = parse_judge_output(raw_content)
-            parsed["raw_output"] = raw_content
-            return parsed
-        except (urllib.error.HTTPError, urllib.error.URLError, Exception) as e:
-            return {
-                "preference": "Tie",
-                "confidence": 1,
-                "rationale": f"Judge API error: {e}",
-                "raw_output": str(e),
+        max_retries = 4
+        backoff = 2.0
+        for attempt in range(max_retries):
+            try:
+                with urllib.request.urlopen(req, timeout=30) as resp:
+                    result = json.loads(resp.read().decode("utf-8"))
+                raw_content = result["choices"][0]["message"]["content"]
+                parsed = parse_judge_output(raw_content)
+                parsed["raw_output"] = raw_content
+                return parsed
+            except urllib.error.HTTPError as e:
+                err_msg = e.read().decode("utf-8")
+                if e.code in (429, 500, 502, 503, 504) and attempt < max_retries - 1:
+                    time.sleep(backoff)
+                    backoff *= 2
+                    continue
+                return {
+                    "preference": "Tie",
+                    "confidence": 1,
+                    "rationale": f"Judge API HTTP error {e.code}: {err_msg}",
+                    "raw_output": err_msg,
+                }
+            except Exception as e:
+                if attempt < max_retries - 1:
+                    time.sleep(backoff)
+                    backoff *= 2
+                    continue
+                return {
+                    "preference": "Tie",
+                    "confidence": 1,
+                    "rationale": f"Judge API error: {e}",
+                    "raw_output": str(e),
+                }
+
+
+class GeminiPairwiseJudge(BasePairwiseJudge):
+    """Real LLM judge using native Google Gemini REST API."""
+
+    def __init__(self, model: str = "gemini-3.5-flash", api_key_env_var: str = "GEMINI_API_KEY"):
+        load_dotenv()
+        self.model = model
+        self.api_key = os.environ.get(api_key_env_var, "")
+        if not self.api_key:
+            raise ValueError(f"Environment variable '{api_key_env_var}' is not set.")
+
+    def judge(self, query: str, candidate_a: str, candidate_b: str) -> Dict[str, Any]:
+        user_prompt = build_judge_prompt(query, candidate_a, candidate_b)
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{self.model}:generateContent?key={self.api_key}"
+        payload = {
+            "system_instruction": {"parts": [{"text": JUDGE_SYSTEM_PROMPT}]},
+            "contents": [{"role": "user", "parts": [{"text": user_prompt}]}],
+            "generationConfig": {
+                "temperature": 0.0,
+                "maxOutputTokens": 400,
+                "responseMimeType": "application/json",
+                "thinkingConfig": {"thinkingBudget": 0},
             }
+        }
+        data_bytes = json.dumps(payload).encode("utf-8")
+        req = urllib.request.Request(url, data=data_bytes, headers={"Content-Type": "application/json"}, method="POST")
+
+        max_retries = 5
+        backoff = 2.0
+        for attempt in range(max_retries):
+            try:
+                with urllib.request.urlopen(req, timeout=30) as resp:
+                    result = json.loads(resp.read().decode("utf-8"))
+                raw_content = result["candidates"][0]["content"]["parts"][0]["text"]
+                parsed = parse_judge_output(raw_content)
+                parsed["raw_output"] = raw_content
+                return parsed
+            except urllib.error.HTTPError as e:
+                err_msg = e.read().decode("utf-8")
+                if e.code in (429, 500, 502, 503, 504) and attempt < max_retries - 1:
+                    time.sleep(backoff)
+                    backoff *= 2
+                    continue
+                return {
+                    "preference": "Tie",
+                    "confidence": 1,
+                    "rationale": f"Gemini Judge HTTP error {e.code}: {err_msg}",
+                    "raw_output": err_msg,
+                }
+            except Exception as e:
+                if attempt < max_retries - 1:
+                    time.sleep(backoff)
+                    backoff *= 2
+                    continue
+                return {
+                    "preference": "Tie",
+                    "confidence": 1,
+                    "rationale": f"Gemini Judge error: {e}",
+                    "raw_output": str(e),
+                }
 
 
 class BlindedPairwiseJudge:
