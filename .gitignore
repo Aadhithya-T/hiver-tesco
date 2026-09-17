@@ -42,6 +42,7 @@ htmlcov/
 data/*.csv
 data/raw/
 *.parquet
+!data/annotation/*.csv
 
 # Generated pipeline outputs and artifacts
 outputs/
