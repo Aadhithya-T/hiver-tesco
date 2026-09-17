@@ -59,8 +59,13 @@ class PolicyDecision:
     priority: int
     matched_triggers: List[str]
     response_guidance: Optional[ResponseGuidance] = None
-    suggested_queue: Optional[str] = None
+    suggested_routing_category: Optional[str] = None  # Project routing labels, not verified Tesco team names
     version: str = "1.0.0"
+
+    @property
+    def suggested_queue(self) -> Optional[str]:
+        """Deprecated alias for suggested_routing_category."""
+        return self.suggested_routing_category
 
     def to_dict(self) -> Dict[str, Any]:
         res = asdict(self)

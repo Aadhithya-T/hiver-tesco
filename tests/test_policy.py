@@ -33,7 +33,7 @@ def test_harassment_abuse_rule(engine):
     assert decision.rule_id == "RULE_01_HARASSMENT_ABUSE"
     assert decision.priority == 1
     assert decision.rule_category == EscalationCategory.SAFETY_AND_HARASSMENT.value
-    assert "Safety_and_Vulnerable_Customer_Team" in decision.suggested_queue
+    assert decision.suggested_routing_category == "safety_and_vulnerable_customer"
 
 
 def test_food_safety_health_rule(engine):
@@ -48,7 +48,7 @@ def test_food_safety_health_rule(engine):
     assert decision.rule_id == "RULE_02_FOOD_SAFETY_HEALTH"
     assert decision.priority == 1
     assert decision.rule_category == EscalationCategory.PRODUCT_SAFETY_AND_HEALTH.value
-    assert "Product_Safety_and_Supplier_Investigation" in decision.suggested_queue
+    assert decision.suggested_routing_category == "product_safety_investigation"
 
 
 def test_payment_refund_rule(engine):
@@ -63,7 +63,7 @@ def test_payment_refund_rule(engine):
     assert decision.rule_id == "RULE_03_PAYMENT_FINANCIAL_LOSS"
     assert decision.priority == 2
     assert decision.rule_category == EscalationCategory.FINANCIAL_AND_REFUNDS.value
-    assert "Billing_and_Refunds_Queue" in decision.suggested_queue
+    assert decision.suggested_routing_category == "billing_and_refunds"
 
 
 def test_account_security_pii_rule(engine):
@@ -117,7 +117,7 @@ def test_legal_regulatory_rule(engine):
     assert decision.action == PolicyAction.ESCALATE
     assert decision.rule_id == "RULE_06_LEGAL_REGULATORY"
     assert decision.priority == 3
-    assert "Legal_and_Regulatory_Affairs" in decision.suggested_queue
+    assert decision.suggested_routing_category == "legal_and_regulatory_affairs"
 
 
 def test_poor_retrieval_evidence_rule(engine):
@@ -180,7 +180,7 @@ def test_staff_incident_rule(engine):
     assert decision.action == PolicyAction.ESCALATE
     assert decision.rule_id == "RULE_09_STAFF_INCIDENT"
     assert decision.priority == 5
-    assert "Store_Manager_Escalations" in decision.suggested_queue
+    assert decision.suggested_routing_category == "store_manager_escalations"
 
 
 def test_priority_override_hierarchy(engine):

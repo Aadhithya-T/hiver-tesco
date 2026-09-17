@@ -236,6 +236,18 @@ def main():
     print(f"\nSaved metrics summary to {output_metrics_json}")
 
     # Markdown Report
+    RULE_METADATA = {
+        "RULE_01_HARASSMENT_ABUSE": ("safety_and_harassment", 1, "safety_and_vulnerable_customer"),
+        "RULE_02_FOOD_SAFETY_HEALTH": ("product_safety_and_health", 1, "product_safety_investigation"),
+        "RULE_03_PAYMENT_FINANCIAL_LOSS": ("financial_and_refunds", 2, "billing_and_refunds"),
+        "RULE_04_ACCOUNT_SECURITY_PII": ("account_and_security", 2, "account_and_security"),
+        "RULE_05_UNRESOLVED_REPETITION": ("repeated_contact_and_frustration", 3, "senior_customer_resolution"),
+        "RULE_06_LEGAL_REGULATORY": ("legal_and_regulatory", 3, "legal_and_regulatory_affairs"),
+        "RULE_07_POOR_OR_NO_EVIDENCE": ("retrieval_failure", 4, "general_customer_support"),
+        "RULE_08_LOW_MODEL_CONFIDENCE": ("model_uncertainty", 4, "general_customer_support"),
+        "RULE_09_STAFF_INCIDENT": ("store_and_staff_policy", 5, "store_manager_escalations"),
+    }
+
     md_content = f"""# Phase 5 — Deterministic Escalation & Response-Policy Evaluation Report
 
 ## Overview
@@ -245,14 +257,14 @@ def main():
 
 ---
 
-## Escalation Performance Comparison (Dev Split)
+## Escalation Performance Comparison (Dev Split, N=40)
 
-| System / Baseline | Accuracy | Precision | Recall | F1 Score | False Negative Rate (Safety Risk) | False Positive Rate (Operator Cost) |
-|---|:---:|:---:|:---:|:---:|:---:|:---:|
-| **Always Do Not Escalate** | {m_always_no['accuracy']:.3f} | {m_always_no['precision']:.3f} | {m_always_no['recall']:.3f} | {m_always_no['f1_score']:.3f} | {m_always_no['false_negative_rate']:.3f} | {m_always_no['false_positive_rate']:.3f} |
-| **Majority Class Escalate** | {m_majority['accuracy']:.3f} | {m_majority['precision']:.3f} | {m_majority['recall']:.3f} | {m_majority['f1_score']:.3f} | {m_majority['false_negative_rate']:.3f} | {m_majority['false_positive_rate']:.3f} |
-| **Phase 3 Risk-Keyword Regex** | {m_keyword['accuracy']:.3f} | {m_keyword['precision']:.3f} | {m_keyword['recall']:.3f} | {m_keyword['f1_score']:.3f} | {m_keyword['false_negative_rate']:.3f} | {m_keyword['false_positive_rate']:.3f} |
-| **Phase 5 Deterministic Policy Engine** | **{policy_metrics.accuracy:.3f}** | **{policy_metrics.precision:.3f}** | **{policy_metrics.recall:.3f}** | **{policy_metrics.f1_score:.3f}** | **{policy_metrics.false_negative_rate:.3f}** | **{policy_metrics.false_positive_rate:.3f}** |
+| System / Baseline | Accuracy | Precision | Recall | F1 Score | Missed Escalations (FN) | Unnecessary Escalations (FP) | FN Rate (Safety Risk) | FP Rate (Operator Cost) |
+|---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
+| **Always Do Not Escalate** | {m_always_no['accuracy']:.3f} | {m_always_no['precision']:.3f} | {m_always_no['recall']:.3f} | {m_always_no['f1_score']:.3f} | {m_always_no['fn']} | {m_always_no['fp']} | {m_always_no['false_negative_rate']:.3f} | {m_always_no['false_positive_rate']:.3f} |
+| **Majority Class Escalate** | {m_majority['accuracy']:.3f} | {m_majority['precision']:.3f} | {m_majority['recall']:.3f} | {m_majority['f1_score']:.3f} | {m_majority['fn']} | {m_majority['fp']} | {m_majority['false_negative_rate']:.3f} | {m_majority['false_positive_rate']:.3f} |
+| **Phase 3 Risk-Keyword Regex** | {m_keyword['accuracy']:.3f} | {m_keyword['precision']:.3f} | {m_keyword['recall']:.3f} | {m_keyword['f1_score']:.3f} | {m_keyword['fn']} | {m_keyword['fp']} | {m_keyword['false_negative_rate']:.3f} | {m_keyword['false_positive_rate']:.3f} |
+| **Phase 5 Deterministic Policy Engine** | **{policy_metrics.accuracy:.3f}** | **{policy_metrics.precision:.3f}** | **{policy_metrics.recall:.3f}** | **{policy_metrics.f1_score:.3f}** | **{policy_metrics.false_negatives}** | **{policy_metrics.false_positives}** | **{policy_metrics.false_negative_rate:.3f}** | **{policy_metrics.false_positive_rate:.3f}** |
 
 ---
 
@@ -260,19 +272,24 @@ def main():
 Total Evaluated: {policy_metrics.total_samples} conversations
 Total Escalations Triggered: {sum(policy_metrics.rule_coverage.values())}
 
-| Rule ID | Category | Priority | Triggers Count | Trigger Share |
-|---|---|:---:|:---:|:---:|
+| Rule ID | Category | Priority | Triggers Count | Trigger Share | Suggested Routing Category* |
+|---|---|:---:|:---:|:---:|---|
 """
     for rule_id, count in sorted(policy_metrics.rule_coverage.items(), key=lambda x: -x[1]):
         share = count / policy_metrics.total_samples * 100
-        md_content += f"| `{rule_id}` | `{rule_id.split('_')[1]}` | - | {count} | {share:.1f}% |\n"
+        cat_name, prio, routing_cat = RULE_METADATA.get(rule_id, ("other", 99, "general_customer_support"))
+        md_content += f"| `{rule_id}` | `{cat_name}` | {prio} | {count} | {share:.1f}% | `{routing_cat}` |\n"
 
     md_content += f"""
+\\* *Note: Suggested routing categories are this project's routing labels, not verified Tesco corporate team names.*
+
 ---
 
-## Safety Trade-off Analysis
-- **Missed Escalations (False Negatives: {policy_metrics.false_negatives})**: Represents direct safety and customer attrition risk where a human agent was required (e.g. food poisoning, refund demand, account lockout) but the system attempted automated reply. Phase 5 reduced the FN rate significantly compared to Phase 3.
-- **Unnecessary Escalations (False Positives: {policy_metrics.false_positives})**: Represents operational overhead where an inquiry could have been safely answered by template/automation, but policy conservatively routed to a human operator. In customer support, a conservative safety bias (low FN at the cost of moderate FP) is strongly preferred.
+## Safety Trade-off Analysis (Honest Assessment)
+
+- **Caught 2 Extra Escalations**: The deterministic policy successfully caught 12 true escalations versus 10 for the Phase 3 keyword regex, reducing missed escalations (False Negatives) from 9 down to 7 (FN rate decreased from 47.4% to 36.8%).
+- **Created 3 Extra Unnecessary Escalations**: However, the policy generated 7 unnecessary escalations (False Positives) versus 4 for Phase 3 (FP rate increased from 19.1% to 33.3%).
+- **Evaluation Verdict**: Because the 3 extra false alarms outweighed the 2 extra caught escalations on the 40 Development conversations, overall accuracy dropped slightly from 67.5% to 65.0%. **This is a cautious safety trade-off (prioritizing recall and liability reduction over agent overhead), not an unambiguous overall performance win.**
 
 See detailed error tables in:
 - False Positives: `outputs/policy/false_positives_dev.csv`

@@ -104,7 +104,7 @@ def evaluate_harassment_abuse(context: PolicyContext) -> Optional[PolicyDecision
             rule_category=EscalationCategory.SAFETY_AND_HARASSMENT.value,
             priority=1,
             matched_triggers=sorted(list(set(matches))),
-            suggested_queue="Safety_and_Vulnerable_Customer_Team",
+            suggested_routing_category="safety_and_vulnerable_customer",
             version=POLICY_VERSION,
         )
     return None
@@ -120,7 +120,7 @@ def evaluate_food_safety_health(context: PolicyContext) -> Optional[PolicyDecisi
             rule_category=EscalationCategory.PRODUCT_SAFETY_AND_HEALTH.value,
             priority=1,
             matched_triggers=sorted(list(set(matches))),
-            suggested_queue="Product_Safety_and_Supplier_Investigation",
+            suggested_routing_category="product_safety_investigation",
             version=POLICY_VERSION,
         )
     return None
@@ -136,7 +136,7 @@ def evaluate_payment_refund(context: PolicyContext) -> Optional[PolicyDecision]:
             rule_category=EscalationCategory.FINANCIAL_AND_REFUNDS.value,
             priority=2,
             matched_triggers=sorted(list(set(matches))),
-            suggested_queue="Billing_and_Refunds_Queue",
+            suggested_routing_category="billing_and_refunds",
             version=POLICY_VERSION,
         )
     return None
@@ -152,7 +152,7 @@ def evaluate_account_security_pii(context: PolicyContext) -> Optional[PolicyDeci
             rule_category=EscalationCategory.ACCOUNT_AND_SECURITY.value,
             priority=2,
             matched_triggers=sorted(list(set(matches))),
-            suggested_queue="Clubcard_and_Account_Security",
+            suggested_routing_category="account_and_security",
             version=POLICY_VERSION,
         )
     return None
@@ -172,7 +172,7 @@ def evaluate_unresolved_repetition(context: PolicyContext) -> Optional[PolicyDec
             rule_category=EscalationCategory.REPEATED_CONTACT_AND_FRUSTRATION.value,
             priority=3,
             matched_triggers=sorted(triggers),
-            suggested_queue="Senior_Customer_Resolution_Team",
+            suggested_routing_category="senior_customer_resolution",
             version=POLICY_VERSION,
         )
     return None
@@ -188,7 +188,7 @@ def evaluate_legal_regulatory(context: PolicyContext) -> Optional[PolicyDecision
             rule_category=EscalationCategory.LEGAL_AND_REGULATORY.value,
             priority=3,
             matched_triggers=sorted(list(set(matches))),
-            suggested_queue="Legal_and_Regulatory_Affairs",
+            suggested_routing_category="legal_and_regulatory_affairs",
             version=POLICY_VERSION,
         )
     return None
@@ -212,7 +212,7 @@ def evaluate_poor_retrieval_evidence(
             rule_category=EscalationCategory.RETRIEVAL_FAILURE.value,
             priority=4,
             matched_triggers=triggers,
-            suggested_queue="General_Customer_Support_Queue",
+            suggested_routing_category="general_customer_support",
             version=POLICY_VERSION,
         )
     return None
@@ -238,7 +238,7 @@ def evaluate_low_model_confidence(
                 rule_category=EscalationCategory.MODEL_UNCERTAINTY.value,
                 priority=4,
                 matched_triggers=[f"model_confidence_{context.model_confidence:.3f}"],
-                suggested_queue="General_Customer_Support_Queue",
+                suggested_routing_category="general_customer_support",
                 version=POLICY_VERSION,
             )
     return None
@@ -254,7 +254,7 @@ def evaluate_staff_incident(context: PolicyContext) -> Optional[PolicyDecision]:
             rule_category=EscalationCategory.STORE_AND_STAFF_POLICY.value,
             priority=5,
             matched_triggers=sorted(list(set(matches))),
-            suggested_queue="Store_Manager_Escalations",
+            suggested_routing_category="store_manager_escalations",
             version=POLICY_VERSION,
         )
     return None
@@ -284,6 +284,6 @@ def create_safe_respond_decision(context: PolicyContext) -> PolicyDecision:
             permitted_topic=context.predicted_intent or "general_customer_inquiry",
             suggested_template="standard_informative_reply",
         ),
-        suggested_queue=None,
+        suggested_routing_category=None,
         version=POLICY_VERSION,
     )
