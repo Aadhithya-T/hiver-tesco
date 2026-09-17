@@ -43,6 +43,7 @@ data/*.csv
 data/raw/
 *.parquet
 !data/annotation/*.csv
+!data/golden/*.csv
 
 # Generated pipeline outputs and artifacts
 outputs/

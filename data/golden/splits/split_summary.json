@@ -1,0 +1,50 @@
+{
+  "clubcard_and_loyalty": {
+    "total": 5,
+    "train": 3,
+    "dev": 1,
+    "test": 1
+  },
+  "delivery_and_orders": {
+    "total": 26,
+    "train": 16,
+    "dev": 5,
+    "test": 5
+  },
+  "general_feedback_and_chitchat": {
+    "total": 45,
+    "train": 27,
+    "dev": 9,
+    "test": 9
+  },
+  "pricing_promotions_and_vouchers": {
+    "total": 9,
+    "train": 5,
+    "dev": 2,
+    "test": 2
+  },
+  "product_quality_and_safety": {
+    "total": 55,
+    "train": 33,
+    "dev": 11,
+    "test": 11
+  },
+  "stock_and_availability": {
+    "total": 13,
+    "train": 7,
+    "dev": 3,
+    "test": 3
+  },
+  "store_experience_and_staff": {
+    "total": 36,
+    "train": 22,
+    "dev": 7,
+    "test": 7
+  },
+  "website_and_app_technical": {
+    "total": 11,
+    "train": 7,
+    "dev": 2,
+    "test": 2
+  }
+}
