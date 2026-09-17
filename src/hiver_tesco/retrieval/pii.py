@@ -78,6 +78,12 @@ def detect_competitor_mentions(text: str) -> List[str]:
     return sorted(list(set(found)))
 
 
+EXEMPT_GREETING_WORDS = {
+    "there", "team", "everyone", "all", "tesco", "@tesco", "customer", "[customer]",
+    "colleague", "[colleague]", "again", "you", "for", "to", "that", "if", "we", "i", "the",
+}
+
+
 def sanitize_evidence_text(text: str) -> str:
     """Redact customer personal identifiers from customer-support text.
 
@@ -88,6 +94,8 @@ def sanitize_evidence_text(text: str) -> str:
     4. UK postcodes are replaced with [POSTCODE].
     5. Order / reference numbers (6-16 digits) are replaced with [ORDER_REF].
     6. Phone numbers are replaced with [PHONE].
+    7. Replace named greetings with a generic "Hi" or "Hello".
+    8. Redact customer/colleague personal names to [CUSTOMER] or normalize agent sign-offs.
     """
     if not text:
         return ""
@@ -114,6 +122,60 @@ def sanitize_evidence_text(text: str) -> str:
         return "[CUSTOMER]"
 
     sanitized = RE_HANDLE.sub(_mask_handle, sanitized)
+
+    # 6. Replace named greetings with generic 'Hi' or 'Hello'
+    def _sub_greeting(m: re.Match) -> str:
+        greet = m.group(1).capitalize()
+        name = m.group(2)
+        punct = m.group(3) or ","
+        if name.lower() in EXEMPT_GREETING_WORDS:
+            return m.group(0)
+        if greet.lower() in ("hi", "hey"):
+            return f"Hi{punct}"
+        return f"{greet}{punct}"
+
+    sanitized = re.sub(
+        r"\b(Hi|Hello|Hey|Good\s+(?:morning|afternoon|evening))\s+([A-Z][a-z]+)(\s*[,!.:]?)",
+        _sub_greeting,
+        sanitized,
+    )
+
+    def _sub_sorry(m: re.Match) -> str:
+        name = m.group(1)
+        punct = m.group(2) or ","
+        if name.lower() in EXEMPT_GREETING_WORDS:
+            return m.group(0)
+        return f"Sorry{punct}"
+
+    sanitized = re.sub(r"\bSorry\s+([A-Z][a-z]+)(\s*[,!.:])", _sub_sorry, sanitized)
+
+    # 7. Redact personal names addressed mid-sentence to [CUSTOMER]
+    def _sub_address(m: re.Match) -> str:
+        prefix = m.group(1)
+        name = m.group(2)
+        punct = m.group(3) or ""
+        if name.lower() not in EXEMPT_GREETING_WORDS:
+            return f"{prefix} [CUSTOMER]{punct}"
+        return m.group(0)
+
+    sanitized = re.sub(
+        r"\b(for you|hear you|with you|help you|ask for|speaking with|speaking to|served by|coming back to me|back to me|back to us)\s+([A-Z][a-z]+)(\s*[,!.:]?)",
+        _sub_address,
+        sanitized,
+        flags=re.IGNORECASE,
+    )
+    sanitized = re.sub(r"\b(Mr|Mrs|Ms|Miss|Dr)\.?\s+([A-Z][a-z]+)\b", "[CUSTOMER]", sanitized)
+    sanitized = re.sub(r"\b(my name is|i am|this is)\s+([A-Z][a-z]+)\b", r"\1 [CUSTOMER]", sanitized, flags=re.IGNORECASE)
+
+    # 8. Normalize agent sign-offs to prevent agent name leakage
+    sanitized = re.sub(r"[-–—]\s*[A-Z][a-z]+\b", "- Team", sanitized)
+    sanitized = re.sub(r"\bTY\s+[A-Z][a-z]+\b", "TY - Team", sanitized)
+    sanitized = re.sub(
+        r"(?i)\b(thanks|regards|best wishes|best|cheers)\s*[,.]?\s*[-–—]?\s+([A-Z][a-z]+)(?:\.|\b)(?=\s*(?:https?://|#|\Z|[.!?]))",
+        r"\1 - Team",
+        sanitized,
+    )
+    sanitized = re.sub(r"(?<=\.\s)[A-Z][a-z]+(?=\s*(?:https?://|#|\Z))", "- Team", sanitized)
 
     # Clean up multiple whitespaces
     sanitized = re.sub(r"\s+", " ", sanitized).strip()

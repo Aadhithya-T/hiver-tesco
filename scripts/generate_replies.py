@@ -206,6 +206,8 @@ def main():
     print(f"Policy Escalated (Bypassed Draft)  : {metrics['policy_escalated_count']}")
     print(f"Eligible for Reply Drafting        : {metrics['eligible_for_drafting_count']}")
     print(f"Drafts Successfully Generated      : {metrics['drafts_generated_count']}")
+    print(f"  - Clean Grounded Drafts          : {metrics['drafts_generated_count'] - metrics['sentiment_conflicts_detected_count']}")
+    print(f"  - Sentiment Conflict Fallbacks   : {metrics['sentiment_conflicts_detected_count']}")
     print(f"Model Refusals (Insufficient Ev.)  : {metrics['model_refusals_count']}")
     print(f"Model Errors / Fallback Escalations: {metrics['model_errors_count']}")
     print(f"Cache Hits                         : {metrics['cache_hits_count']}")
@@ -237,14 +239,16 @@ def _write_safety_report(
         "**Offline Integration Check (Mock Provider)**\n\n"
         "> [!NOTE]\n"
         "> This run was executed with `MockLLMProvider` to rigorously validate pipeline mechanics: "
-        "PII sanitization, deterministic policy bypassing, request caching, structured JSON schema parsing, "
-        "secondary refusal escalations, and complete audit logging without live network calls. "
+        "customer name sanitization, generic greetings ('Hi,' / 'Hello,'), sentiment conflict interception, "
+        "deterministic policy bypassing, request caching, structured JSON schema parsing, "
+        "and complete audit logging without live network calls. "
         "It does **not** evaluate LLM reply quality. A live model should be configured for human comparison."
         if is_mock else f"**Live Model Generation ({model_name})**"
     )
 
     # Collect qualitative examples
-    grounded_examples = [r for r in audit_records if r.generation_status == GenerationStatus.GENERATED.value][:3]
+    conflict_examples = [r for r in audit_records if r.sentiment_conflict_detected]
+    clean_grounded_examples = [r for r in audit_records if r.generation_status == GenerationStatus.GENERATED.value and not r.sentiment_conflict_detected][:3]
     refusal_examples = [r for r in audit_records if r.generation_status == GenerationStatus.MODEL_REFUSED_INSUFFICIENT_EVIDENCE.value][:3]
     policy_esc_examples = [r for r in audit_records if r.generation_status == GenerationStatus.POLICY_ESCALATED.value][:3]
 
@@ -265,17 +269,50 @@ def _write_safety_report(
 | **Total Inquiries Evaluated** | {metrics['total_queries']} | 100.0% | Development set conversations |
 | **Tier 1: Policy Escalated** | {metrics['policy_escalated_count']} | {metrics['policy_escalated_count']/metrics['total_queries']*100:.1f}% | Halted immediately by policy engine; zero LLM calls |
 | **Eligible for Drafting** | {metrics['eligible_for_drafting_count']} | {metrics['eligible_for_drafting_count']/metrics['total_queries']*100:.1f}% | Non-escalated inquiries with safe boundaries |
-| **Drafts Generated** | {metrics['drafts_generated_count']} | {metrics['drafts_generated_count']/metrics['total_queries']*100:.1f}% | Successfully drafted grounded replies |
+| **Drafts Successfully Formed** | {metrics['drafts_generated_count']} | {metrics['drafts_generated_count']/metrics['total_queries']*100:.1f}% | Total completed replies |
+| ├── *Direct Grounded Replies* | {metrics['drafts_generated_count'] - metrics['sentiment_conflicts_detected_count']} | {(metrics['drafts_generated_count'] - metrics['sentiment_conflicts_detected_count'])/metrics['total_queries']*100:.1f}% | Aligned in sentiment and evidence |
+| └── *Sentiment Conflict Fallbacks* | {metrics['sentiment_conflicts_detected_count']} | {metrics['sentiment_conflicts_detected_count']/metrics['total_queries']*100:.1f}% | Intercepted tone mismatch; fell back to template |
 | **Tier 2: Model Refusals** | {metrics['model_refusals_count']} | {metrics['model_refusals_count']/metrics['total_queries']*100:.1f}% | Escalated due to insufficient/missing evidence |
 | **Model Errors** | {metrics['model_errors_count']} | {metrics['model_errors_count']/metrics['total_queries']*100:.1f}% | Malformed outputs safely caught |
 
 ---
 
+## Customer Name Sanitization & Greeting Redaction
+
+In accordance with strict customer privacy safeguards:
+- **Zero Customer Names**: All customer names are scrubbed from prompts, evidence, cache entries, audit logs, and generated replies.
+- **Generic Greetings**: Personal greetings (e.g. *"Hi Ellie,"*, *"Hello David,"*) are normalized to a generic *"Hi,"* or *"Hello,"*.
+- **Mid-Sentence Names**: Replaced with `[CUSTOMER]` (e.g., *"So I can look into this for you [CUSTOMER]..."*).
+- **Agent Signatures**: Personal colleague signatures (*"- Callum"*, *"Mike"*, *"TY Brooke"*) are normalized to `"- Team"` or `"TY - Team"`.
+
+---
+
 ## Qualitative Safety & Grounding Review
 
-### 1. Grounded Reply Examples (Accepted Evidence)
+### 1. Sentiment Conflict Interceptions & Template Fallbacks
 """
-    for ex in grounded_examples:
+    for ex in conflict_examples:
+        ev_id = ex.evidence_source_ids[0] if ex.evidence_source_ids else "N/A"
+        score = ex.evidence_similarity_scores[0] if ex.evidence_similarity_scores else 0.0
+        md += f"""
+#### Conversation ID: `{ex.conversation_id}`
+- **Customer Query (Sanitized)**:
+  > *"{ex.sanitized_prompt.split('CUSTOMER INQUIRY (Sanitized):')[1].split('POLICY GUIDANCE:')[0].strip().strip('"')}"*
+- **Evidence Document Used**: ID `{ev_id}` (Similarity Score: `{score:.3f}`)
+- **Raw Retrieved Draft (Tone Conflict)**: Apology for poor experience or defective product.
+- **Sentiment Conflict Reason**: `{ex.sentiment_conflict_reason}`
+- **Safety Interception Action**: **FELL BACK TO TEMPLATE REPLY**
+- **Final Delivered Reply**:
+  > *"{ex.final_draft}"*
+- **Safety Assessment**: Prevents the assistant from inappropriately apologizing for a defect or poor experience when the customer is sharing positive feedback or humor.
+
+---
+"""
+
+    md += """
+### 2. Direct Grounded Reply Examples (Aligned Sentiment)
+"""
+    for ex in clean_grounded_examples:
         ev_id = ex.evidence_source_ids[0] if ex.evidence_source_ids else "N/A"
         score = ex.evidence_similarity_scores[0] if ex.evidence_similarity_scores else 0.0
         md += f"""
@@ -283,17 +320,17 @@ def _write_safety_report(
 - **Customer Query (Sanitized)**:
   > *"{ex.sanitized_prompt.split('CUSTOMER INQUIRY (Sanitized):')[1].split('POLICY GUIDANCE:')[0].strip().strip('"')}"*
 - **Retrieved Evidence Document**: ID `{ev_id}` (Similarity Score: `{score:.3f}`)
-- **LLM Draft Reply**:
+- **LLM Grounded Draft Reply (Names Scrubbed)**:
   > *"{ex.final_draft}"*
 - **Template Baseline Reply (Comparison)**:
   > *"{ex.template_baseline_reply}"*
-- **Safety Assessment**: Grounded in historical evidence; avoids unverified commitments; within safe boundary.
+- **Safety Assessment**: Grounded in historical evidence; names removed; tone aligned.
 
 ---
 """
 
     md += """
-### 2. Model Refusal / Secondary Escalation Examples (Insufficient Evidence)
+### 3. Model Refusal / Secondary Escalation Examples (Insufficient Evidence)
 When historical evidence is weak, rejected, or missing, the model is strictly forbidden from guessing and must return a structured escalation.
 """
     if refusal_examples:

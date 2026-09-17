@@ -23,6 +23,7 @@ from hiver_tesco.generation.prompts import (
     build_user_prompt,
 )
 from hiver_tesco.generation.providers import BaseLLMProvider, get_provider
+from hiver_tesco.generation.safety import detect_sentiment_conflict
 from hiver_tesco.policy.models import PolicyAction, PolicyDecision
 from hiver_tesco.retrieval.pii import sanitize_evidence_text
 
@@ -123,20 +124,42 @@ class GroundedReplyGenerator:
         parsed_output = self._parse_structured_output(raw_output)
 
         if parsed_output.status == "draft" and parsed_output.reply:
-            final_draft = sanitize_evidence_text(parsed_output.reply)
-            status = GenerationStatus.GENERATED.value
-            routing_cat = None
-            reason = "grounded_reply_drafted"
+            sanitized_draft = sanitize_evidence_text(parsed_output.reply)
+            
+            # --- GATE 5: Tone & Sentiment Alignment Check ---
+            is_conflict, conflict_reason = detect_sentiment_conflict(
+                query_text=sanitized_query,
+                draft_reply=sanitized_draft,
+                predicted_intent=predicted_intent,
+            )
+            if is_conflict:
+                final_draft = template_reply
+                status = GenerationStatus.GENERATED.value
+                routing_cat = None
+                reason = f"grounded_draft_sentiment_conflict_fallback_to_template: {conflict_reason}"
+                conflict_detected = True
+                conflict_details = conflict_reason
+            else:
+                final_draft = sanitized_draft
+                status = GenerationStatus.GENERATED.value
+                routing_cat = None
+                reason = "grounded_reply_drafted"
+                conflict_detected = False
+                conflict_details = None
         elif parsed_output.status == "escalate":
             final_draft = None
             status = GenerationStatus.MODEL_REFUSED_INSUFFICIENT_EVIDENCE.value
             routing_cat = parsed_output.suggested_routing_category or "general_customer_support"
             reason = parsed_output.reason or "insufficient_evidence_to_answer_accurately"
+            conflict_detected = False
+            conflict_details = None
         else:
             final_draft = None
             status = GenerationStatus.MODEL_ERROR.value
             routing_cat = "general_customer_support"
             reason = "unparseable_model_output_fallback_escalate"
+            conflict_detected = False
+            conflict_details = None
 
         audit = AuditRecord(
             conversation_id=conversation_id,
@@ -155,6 +178,8 @@ class GroundedReplyGenerator:
             generation_status=status,
             template_baseline_reply=template_reply,
             cache_hit=cache_hit,
+            sentiment_conflict_detected=conflict_detected,
+            sentiment_conflict_reason=conflict_details,
         )
         self._write_audit(audit)
         return audit

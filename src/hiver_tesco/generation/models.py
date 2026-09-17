@@ -102,6 +102,8 @@ class AuditRecord:
     generation_status: str
     template_baseline_reply: str
     cache_hit: bool
+    sentiment_conflict_detected: bool = False
+    sentiment_conflict_reason: Optional[str] = None
 
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)

@@ -395,3 +395,111 @@ def test_review_dataframe_and_metrics_summary():
     assert summary["drafts_generated_count"] == 1
     assert summary["cache_hits_count"] == 1
     assert summary["drafting_success_rate"] == 1.0
+
+
+def test_customer_name_sanitization_in_greetings_and_signatures():
+    """Verify that personal names in greetings and signatures are scrubbed."""
+    from hiver_tesco.retrieval.pii import sanitize_evidence_text
+
+    raw1 = "Hi Ellie, I am sorry you had a poor experience with us. Mike"
+    clean1 = sanitize_evidence_text(raw1)
+    assert "Ellie" not in clean1
+    assert "Mike" not in clean1
+    assert clean1.startswith("Hi,")
+
+    raw2 = "So I can look into this for you Fiona, please advise the store"
+    clean2 = sanitize_evidence_text(raw2)
+    assert "Fiona" not in clean2
+    assert "[CUSTOMER]" in clean2
+
+    raw3 = "Thanks - Callum. We hear you Emma, have a good day."
+    clean3 = sanitize_evidence_text(raw3)
+    assert "Callum" not in clean3
+    assert "Emma" not in clean3
+    assert "- Team" in clean3
+    assert "[CUSTOMER]" in clean3
+
+
+def test_compliment_sentiment_conflict_falls_back_to_template(temp_cache_dir, temp_audit_file, sample_guidance):
+    """Verify that positive staff compliment query falling on an apology draft triggers template fallback."""
+    # Model draft incorrectly apologizes for a poor experience
+    conflict_draft = json.dumps({
+        "status": "draft",
+        "reply": "Hi Ellie, I'm sorry you've had a poor experience with us. Best wishes. Mike",
+        "grounded_evidence_id": "1787586",
+    })
+    provider = MockLLMProvider(canned_responses={"Victoria on the tills": conflict_draft})
+
+    generator = GroundedReplyGenerator(
+        provider=provider,
+        cache=ResponseCache(cache_dir=temp_cache_dir),
+        audit_log_path=temp_audit_file,
+    )
+
+    policy_dec = PolicyDecision(
+        action=PolicyAction.RESPOND,
+        primary_reason="safe_inquiry",
+        rule_id="DEFAULT_SAFE_RESPOND",
+        rule_category=EscalationCategory.DEFAULT_AUTOMATED.value,
+        priority=99,
+        matched_triggers=[],
+        response_guidance=sample_guidance,
+    )
+
+    audit = generator.generate(
+        conversation_id="conv_compliment_test",
+        query_text="good service from Victoria on the tills at flitwick this morning, this is why customers prefer not to use self service",
+        policy_decision=policy_dec,
+        predicted_intent="store_experience_and_staff",
+        evidence=None,
+        evidence_accepted=False,
+    )
+
+    # Sentiment conflict must be detected
+    assert audit.sentiment_conflict_detected is True
+    assert "sentiment_conflict" in audit.policy_reason
+    # Final draft must fall back to the safe, positive template reply
+    assert "Ellie" not in audit.final_draft
+    assert "sorry" not in audit.final_draft.lower()
+    assert "thank you so much" in audit.final_draft.lower()
+
+
+def test_banter_sentiment_conflict_falls_back_to_template(temp_cache_dir, temp_audit_file, sample_guidance):
+    """Verify that humorous product banter falling on defect/refund draft triggers template fallback."""
+    conflict_draft = json.dumps({
+        "status": "draft",
+        "reply": "Hi there, I'm so sorry to learn about the quality of your caeser salad. We will refund you.",
+        "grounded_evidence_id": "915399",
+    })
+    provider = MockLLMProvider(canned_responses={"brownies in a pack": conflict_draft})
+
+    generator = GroundedReplyGenerator(
+        provider=provider,
+        cache=ResponseCache(cache_dir=temp_cache_dir),
+        audit_log_path=temp_audit_file,
+    )
+
+    policy_dec = PolicyDecision(
+        action=PolicyAction.RESPOND,
+        primary_reason="safe_inquiry",
+        rule_id="DEFAULT_SAFE_RESPOND",
+        rule_category=EscalationCategory.DEFAULT_AUTOMATED.value,
+        priority=99,
+        matched_triggers=[],
+        response_guidance=sample_guidance,
+    )
+
+    audit = generator.generate(
+        conversation_id="conv_banter_test",
+        query_text="Bit harsh that @Tesco put 9 brownies in a pack - missus and I are clearly gonna argue over that last one!",
+        policy_decision=policy_dec,
+        predicted_intent="product_quality_and_safety",
+        evidence=None,
+        evidence_accepted=False,
+    )
+
+    assert audit.sentiment_conflict_detected is True
+    assert "caeser salad" not in audit.final_draft.lower()
+    assert "refund" not in audit.final_draft.lower()
+    assert "feedback regarding our product range" in audit.final_draft.lower()
+

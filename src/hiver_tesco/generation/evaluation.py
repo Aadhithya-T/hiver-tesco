@@ -19,6 +19,8 @@ def create_generation_review_dataframe(records: List[AuditRecord]) -> pd.DataFra
             "suggested_routing_category": r.suggested_routing_category or "none",
             "llm_draft_reply": r.final_draft or "[NO DRAFT - ESCALATED]",
             "template_baseline_reply": r.template_baseline_reply,
+            "sentiment_conflict_detected": r.sentiment_conflict_detected,
+            "sentiment_conflict_reason": r.sentiment_conflict_reason or "none",
             "cache_hit": r.cache_hit,
         })
     return pd.DataFrame(rows)
@@ -31,6 +33,7 @@ def summarize_generation_metrics(records: List[AuditRecord]) -> Dict[str, Any]:
     drafts_generated = sum(1 for r in records if r.generation_status == GenerationStatus.GENERATED.value)
     model_refused = sum(1 for r in records if r.generation_status == GenerationStatus.MODEL_REFUSED_INSUFFICIENT_EVIDENCE.value)
     model_errors = sum(1 for r in records if r.generation_status == GenerationStatus.MODEL_ERROR.value)
+    sentiment_conflicts = sum(1 for r in records if r.sentiment_conflict_detected)
     cache_hits = sum(1 for r in records if r.cache_hit)
 
     eligible = total - policy_escalated
@@ -42,6 +45,7 @@ def summarize_generation_metrics(records: List[AuditRecord]) -> Dict[str, Any]:
         "drafts_generated_count": drafts_generated,
         "model_refusals_count": model_refused,
         "model_errors_count": model_errors,
+        "sentiment_conflicts_detected_count": sentiment_conflicts,
         "cache_hits_count": cache_hits,
         "cache_hit_rate": round(cache_hits / total, 4) if total > 0 else 0.0,
         "drafting_success_rate": round(drafts_generated / eligible, 4) if eligible > 0 else 0.0,
